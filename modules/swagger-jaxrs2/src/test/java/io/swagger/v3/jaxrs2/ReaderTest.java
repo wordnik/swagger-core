@@ -66,6 +66,7 @@ import io.swagger.v3.jaxrs2.resources.Ticket3015Resource;
 import io.swagger.v3.jaxrs2.resources.Ticket3587Resource;
 import io.swagger.v3.jaxrs2.resources.Ticket3731BisResource;
 import io.swagger.v3.jaxrs2.resources.Ticket3731Resource;
+import io.swagger.v3.jaxrs2.resources.Ticket4412Resource;
 import io.swagger.v3.jaxrs2.resources.UploadResource;
 import io.swagger.v3.jaxrs2.resources.UrlEncodedResourceWithEncodings;
 import io.swagger.v3.jaxrs2.resources.UserAnnotationResource;
@@ -125,7 +126,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Collectors;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
@@ -714,6 +718,36 @@ public class ReaderTest {
         @io.swagger.v3.oas.annotations.Operation(tags = "/receiver/rest")
         //public void test1(@QueryParam("aa") String a) {
         public void test1(A a) {
+        }
+    }
+
+    @Test
+    public void testClassWithCompletableFuture() {
+        Reader reader = new Reader(new OpenAPI());
+        OpenAPI openAPI = reader.read(ClassWithCompletableFuture.class);
+        assertNotNull(openAPI);
+
+        assertEquals(
+            openAPI.getPaths()
+                    .get("/myApi")
+                    .getGet()
+                    .getResponses()
+                    .get("default")
+                    .getContent()
+                    .get("application/json")
+                    .getSchema()
+                    .get$ref(),
+                "#/components/schemas/Ret"
+        );
+    }
+
+    static class ClassWithCompletableFuture {
+        @Path("/myApi")
+        @Produces("application/json")
+        @Consumes("application/json")
+        @GET
+        public CompletableFuture<Ret> myApi(A a) {
+            return CompletableFuture.completedFuture(new Ret());
         }
     }
 
@@ -3028,6 +3062,35 @@ public class ReaderTest {
                 "      properties:\n" +
                 "        foo:\n" +
                 "          type: string";
+        SerializationMatchers.assertEqualsToYaml(openAPI, yaml);
+    }
+
+    @Test
+    public void test4412PathWildcards() {
+        Reader reader = new Reader(new OpenAPI());
+
+        OpenAPI openAPI = reader.read(Ticket4412Resource.class);
+        String yaml = "openapi: 3.0.1\n" +
+                "paths:\n" +
+                "  /test/sws/{var}:\n" +
+                "    get:\n" +
+                "      operationId: getCart\n" +
+                "      parameters:\n" +
+                "      - name: var\n" +
+                "        in: path\n" +
+                "        required: true\n" +
+                "        schema:\n" +
+                "          pattern: .*\n" +
+                "          type: string\n" +
+                "      responses:\n" +
+                "        default:\n" +
+                "          description: default response\n" +
+                "          content:\n" +
+                "            text/xml:\n" +
+                "              schema:\n" +
+                "                type: array\n" +
+                "                items:\n" +
+                "                  type: string";
         SerializationMatchers.assertEqualsToYaml(openAPI, yaml);
     }
 }

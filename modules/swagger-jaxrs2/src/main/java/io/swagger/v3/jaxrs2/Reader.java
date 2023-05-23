@@ -69,6 +69,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.CompletionStage;
 import java.util.stream.Collectors;
 
 public class Reader implements OpenApiReader {
@@ -638,7 +639,7 @@ public class Reader implements OpenApiReader {
                         continue;
                     }
                     setPathItemOperation(pathItemObject, httpMethod, operation);
-
+                    applyPathParamsPatterns(operation, regexMap);
                     paths.addPathItem(operationPath, pathItemObject);
                     if (openAPI.getPaths() != null) {
                         this.paths.putAll(openAPI.getPaths());
@@ -679,6 +680,19 @@ public class Reader implements OpenApiReader {
         return openAPI;
     }
 
+    protected void applyPathParamsPatterns(Operation operation, Map<String, String> patternsMap) {
+        if (operation.getParameters() == null) {
+            return;
+        }
+        operation.getParameters().stream()
+                .filter(p -> patternsMap.containsKey(p.getName()))
+                .filter(p -> "path".equals(p.getIn()))
+                .filter(p -> p.getSchema() != null)
+                .filter(p -> StringUtils.isBlank(p.getSchema().getPattern()))
+                .filter(p -> !Parameter.StyleEnum.MATRIX.equals(p.getStyle()))
+                .filter(p -> "string" == p.getSchema().getType() || (p.getSchema().getTypes() != null && p.getSchema().getTypes().contains("string")))
+                .forEach(p -> p.getSchema().setPattern(patternsMap.get(p.getName())));
+    }
     protected Content processContent(Content content, Schema schema, Consumes methodConsumes, Consumes classConsumes) {
         if (content == null) {
             content = new Content();
@@ -1071,7 +1085,7 @@ public class Reader implements OpenApiReader {
         Type returnType = method.getGenericReturnType();
 
         if (annotatedMethod != null && annotatedMethod.getType() != null) {
-            returnType = annotatedMethod.getType();
+            returnType = extractTypeFromMethod(annotatedMethod);
         }
 
         final Class<?> subResource = getSubResourceWithJaxRsSubresourceLocatorSpecs(method);
@@ -1131,6 +1145,14 @@ public class Reader implements OpenApiReader {
 
 
         return operation;
+    }
+
+    private Type extractTypeFromMethod(AnnotatedMethod annotatedMethod) {
+        if(CompletionStage.class.isAssignableFrom(annotatedMethod.getType().getRawClass())) {
+            // CompletionStage's 1st generic type is the real return type.
+            return annotatedMethod.getType().getBindings().getBoundType(0);
+        }
+        return annotatedMethod.getType();
     }
 
     protected Content resolveEmptyContent(Produces classProduces, Produces methodProduces) {
