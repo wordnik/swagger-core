@@ -123,6 +123,10 @@ public class Reader implements OpenApiReader {
         this.openApiTags = openApiTags;
         this.components = components;
         setConfiguration(openApiConfiguration);
+        if (openApiConfiguration != null && StringUtils.isNotBlank(openApiConfiguration.getOpenAPIVersion())) {
+            this.openAPI.openapi(openApiConfiguration.getOpenAPIVersion());
+        }
+
     }
 
 

@@ -760,7 +760,7 @@ public class ModelResolver extends AbstractModelConverter implements ModelConver
                     if (reResolvedProperty.isPresent()) {
                         property = reResolvedProperty.get();
                     }
-                    reResolvedProperty = AnnotationsUtils.getArraySchema(ctxArraySchema, annotatedType.getComponents(), null, openapi31, property);
+                    reResolvedProperty = AnnotationsUtils.getArraySchema(ctxArraySchema, annotatedType.getComponents(), null, openapi31, property, true);
                     if (reResolvedProperty.isPresent()) {
                         property = reResolvedProperty.get();
                     }
@@ -1122,7 +1122,7 @@ public class ModelResolver extends AbstractModelConverter implements ModelConver
 
     private Stream<Annotation> getRecordComponentAnnotations(BeanPropertyDefinition propDef) {
         try {
-            Method accessor = propDef.getPrimaryMember().getDeclaringClass().getDeclaredMethod(propDef.getName());
+            Method accessor = propDef.getPrimaryMember().getDeclaringClass().getDeclaredMethod(propDef.getPrimaryMember().getName());
             return getGenericTypeArgumentAnnotations(accessor.getAnnotatedReturnType());
         } catch (NoSuchMethodException e) {
             LOGGER.error("Accessor for record component not found");
@@ -1173,6 +1173,7 @@ public class ModelResolver extends AbstractModelConverter implements ModelConver
             if (jsonValueMember != null) {
                 return jsonValueMember.getType();
             }
+            return null;
         } catch (Exception e) {
             LOGGER.warn("jackson BeanDescription.findJsonValueAccessor not found, this could lead to inaccurate result, please update jackson to 2.9+");
         }
@@ -1194,7 +1195,7 @@ public class ModelResolver extends AbstractModelConverter implements ModelConver
 
     private boolean isSubtype(AnnotatedClass childClass, Class<?> parentClass) {
         final BeanDescription parentDesc = _mapper.getSerializationConfig().introspectClassAnnotations(parentClass);
-        List<NamedType> subTypes =_intr.findSubtypes(parentDesc.getClassInfo());
+        List<NamedType> subTypes = _intr().findSubtypes(parentDesc.getClassInfo());
         if (subTypes == null) {
             return false;
         }
@@ -1241,7 +1242,7 @@ public class ModelResolver extends AbstractModelConverter implements ModelConver
         Enum<?>[] enumConstants = enumClass.getEnumConstants();
 
         if (enumConstants != null) {
-            String[] enumValues = _intr.findEnumValues(propClass, enumConstants,
+            String[] enumValues = _intr().findEnumValues(propClass, enumConstants,
                 new String[enumConstants.length]);
 
             for (Enum<?> en : enumConstants) {
@@ -1267,7 +1268,7 @@ public class ModelResolver extends AbstractModelConverter implements ModelConver
                 } else if (useToString) {
                     n = en.toString();
                 } else {
-                    n = _intr.findEnumValue(en);
+                    n = _intr().findEnumValue(en);
                 }
                 if (property instanceof StringSchema) {
                     StringSchema sp = (StringSchema) property;
@@ -1643,7 +1644,7 @@ public class ModelResolver extends AbstractModelConverter implements ModelConver
     }
 
     private boolean resolveSubtypes(Schema model, BeanDescription bean, ModelConverterContext context, JsonView jsonViewAnnotation) {
-        final List<NamedType> types = _intr.findSubtypes(bean.getClassInfo());
+        final List<NamedType> types = _intr().findSubtypes(bean.getClassInfo());
         if (types == null) {
             return false;
         }
@@ -1779,7 +1780,7 @@ public class ModelResolver extends AbstractModelConverter implements ModelConver
     private void removeSuperSubTypes(List<NamedType> resultTypes, Class<?> superClass) {
         JavaType superType = _mapper.constructType(superClass);
         BeanDescription superBean = _mapper.getSerializationConfig().introspect(superType);
-        final List<NamedType> superTypes = _intr.findSubtypes(superBean.getClassInfo());
+        final List<NamedType> superTypes = _intr().findSubtypes(superBean.getClassInfo());
         if (superTypes != null) {
             resultTypes.removeAll(superTypes);
         }
@@ -2709,6 +2710,19 @@ public class ModelResolver extends AbstractModelConverter implements ModelConver
         Annotated a = beanDesc.getClassInfo();
         Annotation[] annotations = annotatedType.getCtxAnnotations();
         resolveSchemaMembers(schema, a, annotations, schemaAnnotation);
+        if (schemaAnnotation != null) {
+            if (schemaAnnotation.additionalProperties().equals(io.swagger.v3.oas.annotations.media.Schema.AdditionalPropertiesValue.TRUE)) {
+                schema.additionalProperties(true);
+            } else if (schemaAnnotation.additionalProperties().equals(io.swagger.v3.oas.annotations.media.Schema.AdditionalPropertiesValue.FALSE)) {
+                schema.additionalProperties(false);
+            } else {
+                if (!schemaAnnotation.additionalPropertiesSchema().equals(Void.class)) {
+                    Schema additionalPropertiesSchema = resolve(new AnnotatedType(schemaAnnotation.additionalPropertiesSchema()), context, next);
+                    additionalPropertiesSchema = buildRefSchemaIfObject(additionalPropertiesSchema, context);
+                    schema.additionalProperties(additionalPropertiesSchema);
+                }
+            }
+        }
 
         if (openapi31 && schema != null && schemaAnnotation != null) {
             if (!Void.class.equals(schemaAnnotation.contentSchema())) {
@@ -2740,18 +2754,6 @@ public class ModelResolver extends AbstractModelConverter implements ModelConver
                 Schema unevaluatedProperties = resolve(new AnnotatedType(schemaAnnotation.unevaluatedProperties()), context, next);
                 unevaluatedProperties = buildRefSchemaIfObject(unevaluatedProperties, context);
                 schema.setUnevaluatedProperties(unevaluatedProperties);
-            }
-
-            if (schemaAnnotation.additionalProperties().equals(io.swagger.v3.oas.annotations.media.Schema.AdditionalPropertiesValue.TRUE)) {
-                schema.additionalProperties(true);
-            } else if (schemaAnnotation.additionalProperties().equals(io.swagger.v3.oas.annotations.media.Schema.AdditionalPropertiesValue.FALSE)) {
-                schema.additionalProperties(false);
-            } else {
-                if (!schemaAnnotation.additionalPropertiesSchema().equals(Void.class)) {
-                    Schema additionalPropertiesSchema = resolve(new AnnotatedType(schemaAnnotation.additionalPropertiesSchema()), context, next);
-                    additionalPropertiesSchema = buildRefSchemaIfObject(additionalPropertiesSchema, context);
-                    schema.additionalProperties(additionalPropertiesSchema);
-                }
             }
 
             final Map<String, List<String>> dependentRequired =  resolveDependentRequired(a, annotations, schemaAnnotation);
